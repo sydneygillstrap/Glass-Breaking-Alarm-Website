@@ -85,7 +85,7 @@
         const modelError = document.getElementById('model-error');
 
         let model, recognizer, classLabels;
-        let alarmSynth, alarmSoundLoop; // <-- Changed: Declared here but not initialized
+        let alarmSynth, alarmSoundLoop; // <-- Declared here
 
         // --- Main Functions ---
 
@@ -94,26 +94,9 @@
          */
         async function initModel() {
             
-            // Added: Initialize Tone.js objects now that window.onload has fired
-            try {
-                alarmSynth = new Tone.Synth({
-                    oscillator: { type: 'square' },
-                    envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.1 }
-                }).toDestination();
-
-                alarmSoundLoop = new Tone.Loop(time => {
-                    alarmSynth.triggerAttackRelease("C5", "16n", time);
-                }, "8n").start(0);
-            } catch (toneError) {
-                console.error("Tone.js initialization failed:", toneError);
-                statusText.textContent = "Audio Error";
-                statusEmoji.textContent = "❌";
-                statusSubtitle.textContent = "Failed to initialize alarm sound.";
-                statusContainer.classList.add('bg-red-800');
-                startButton.disabled = true;
-                startButton.classList.add('opacity-50', 'cursor-not-allowed');
-                return; // Stop initialization
-            }
+            // REMOVED: Tone.js initialization logic was moved to startListening
+            // to ensure it only runs after user interaction, which is
+            // required by browsers to start the Web Audio API.
 
             if (MODEL_URL === "YOUR_MODEL_URL_HERE") {
                 console.error("Model URL not set.");
@@ -170,11 +153,44 @@
             if (Tone.context.state !== 'running') {
                 Tone.context.resume().then(() => {
                     console.log("Audio context resumed.");
-                    beginRecognition();
+                    initializeAudioAndRecognize(); // Call new helper
                 });
             } else {
-                beginRecognition();
+                initializeAudioAndRecognize(); // Call new helper
             }
+        }
+
+        // NEW HELPER FUNCTION
+        function initializeAudioAndRecognize() {
+            // Initialize Tone.js objects only if they haven't been already
+            if (!alarmSynth) {
+                try {
+                    alarmSynth = new Tone.Synth({
+                        oscillator: { type: 'square' },
+                        envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.1 }
+                    }).toDestination();
+
+                    alarmSoundLoop = new Tone.Loop(time => {
+                        alarmSynth.triggerAttackRelease("C5", "16n", time);
+                    }, "8n").start(0);
+                } catch (toneError) {
+                    console.error("Tone.js initialization failed:", toneError);
+                    statusText.textContent = "Audio Error";
+                    statusEmoji.textContent = "❌";
+                    statusSubtitle.textContent = "Failed to initialize alarm sound.";
+                    statusContainer.classList.add('bg-red-800');
+                    
+                    // Reset UI and show error on button
+                    updateUI('ready'); 
+                    startButton.disabled = true;
+                    startButton.classList.add('opacity-50', 'cursor-not-allowed');
+                    startButton.textContent = "Audio Error";
+                    return; // Stop
+                }
+            }
+
+            // Now that audio is ready, start recognition
+            beginRecognition();
         }
 
         function beginRecognition() {
@@ -282,6 +298,10 @@
 
         // Load the model when the window loads
         window.onload = initModel;
+
+    </script>
+</body>
+</html>
 
     </script>
 </body>
