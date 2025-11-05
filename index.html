@@ -1,10 +1,288 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-<title>My Awesome Website</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Glass Break Alarm</title>
+    <!-- Load Tailwind CSS -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- Load TensorFlow.js, Teachable Machine Speech, and Tone.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@teachablemachine/speech@latest/dist/speech.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/tone/14.7.77/Tone.min.js"></script>
+    <style>
+        /* Custom font */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Simple blinking animation for alarm */
+        @keyframes blink {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .alarm-blink {
+            animation: blink 0.7s linear infinite;
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&display=swap">
 </head>
-<body>
-<h1>Hello, World!</h1>
-<p>Welcome to my first GitHub Pages website.</p>
+<body class="bg-gray-900 text-white flex items-center justify-center min-h-screen transition-all duration-500" id="app-body">
+
+    <div class="w-full max-w-md p-8 bg-gray-800 rounded-2xl shadow-2xl text-center">
+        
+        <!-- Header -->
+        <div class="mb-6">
+            <svg class="w-16 h-16 mx-auto text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.5 0 7.168-1.875 7.168-1.875S13.796 1 12 1C9.6 1 5 5 5 8.5V13.683z"></path></svg>
+            <h1 class="text-3xl font-bold mt-4">Glass Break Alarm</h1>
+            <p class="text-gray-400 mt-2">Powered by Teachable Machine</p>
+        </div>
+
+        <!-- Status Display -->
+        <div id="status-container" class="p-6 rounded-lg bg-gray-700 transition-all duration-500">
+            <div class="text-5xl font-bold" id="status-emoji">🛡️</div>
+            <div class="text-xl font-semibold mt-2" id="status-text">System Secure</div>
+            <p class="text-gray-300 h-6 mt-1" id="status-subtitle">System is disarmed.</p>
+        </div>
+
+        <!-- Controls -->
+        <div class="mt-8">
+            <button id="start-button" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300 shadow-lg">
+                Arm System
+            </button>
+            <button id="reset-button" class="w-full bg-gray-600 hover:bg-gray-700 text-white font-bold py-3 px-6 rounded-lg text-lg transition duration-300 shadow-lg hidden">
+                Reset Alarm
+            </button>
+        </div>
+
+        <!-- Model URL Info Box -->
+        <div id="model-error" class="mt-6 p-3 bg-yellow-900/50 text-yellow-300 border border-yellow-700 rounded-lg text-sm hidden">
+            <strong>Action Required:</strong> Please add your Teachable Machine model URL to the
+            <code class="bg-gray-900 px-1 py-0.5 rounded">MODEL_URL</code> variable in the JavaScript code.
+        </div>
+    </div>
+
+    <script>
+        // --- IMPORTANT ---
+        // 1. Train your model at: https://teachablemachine.withgoogle.com/train/audio
+        // 2. Create two classes: "Background Noise" and "Glass Break"
+        // 3. Paste your model's shareable URL here:
+        const MODEL_URL = "https://teachablemachine.withgoogle.com/models/oeuce1up_/"; 
+        // --- IMPORTANT ---
+
+        // Class name to listen for
+        const ALARM_CLASS_NAME = "Glass Break"; // Change this if your class is named differently
+
+        // DOM Elements
+        const body = document.getElementById('app-body');
+        const statusText = document.getElementById('status-text');
+        const statusEmoji = document.getElementById('status-emoji');
+        const statusSubtitle = document.getElementById('status-subtitle');
+        const statusContainer = document.getElementById('status-container');
+        const startButton = document.getElementById('start-button');
+        const resetButton = document.getElementById('reset-button');
+        const modelError = document.getElementById('model-error');
+
+        let model, recognizer, classLabels;
+        let alarmSynth, alarmSoundLoop; // <-- Changed: Declared here but not initialized
+
+        // --- Main Functions ---
+
+        /**
+         * Initializes the Teachable Machine model
+         */
+        async function initModel() {
+            
+            // Added: Initialize Tone.js objects now that window.onload has fired
+            try {
+                alarmSynth = new Tone.Synth({
+                    oscillator: { type: 'square' },
+                    envelope: { attack: 0.01, decay: 0.1, sustain: 0.2, release: 0.1 }
+                }).toDestination();
+
+                alarmSoundLoop = new Tone.Loop(time => {
+                    alarmSynth.triggerAttackRelease("C5", "16n", time);
+                }, "8n").start(0);
+            } catch (toneError) {
+                console.error("Tone.js initialization failed:", toneError);
+                statusText.textContent = "Audio Error";
+                statusEmoji.textContent = "❌";
+                statusSubtitle.textContent = "Failed to initialize alarm sound.";
+                statusContainer.classList.add('bg-red-800');
+                startButton.disabled = true;
+                startButton.classList.add('opacity-50', 'cursor-not-allowed');
+                return; // Stop initialization
+            }
+
+            if (MODEL_URL === "YOUR_MODEL_URL_HERE") {
+                console.error("Model URL not set.");
+                modelError.classList.remove('hidden');
+                startButton.disabled = true;
+                startButton.textContent = "Model URL Missing";
+                startButton.classList.add('opacity-50', 'cursor-not-allowed');
+                return;
+            }
+
+            statusText.textContent = "Loading Model...";
+            statusEmoji.textContent = "⏳";
+            statusSubtitle.textContent = "Please wait...";
+
+            const modelURL = MODEL_URL + "model.json";
+            const metadataURL = MODEL_URL + "metadata.json";
+
+            try {
+                model = await tmSpeech.create(modelURL, metadataURL);
+                classLabels = model.getClassLabels();
+
+                if (!classLabels.includes(ALARM_CLASS_NAME)) {
+                    console.error(`Error: Model does not contain class "${ALARM_CLASS_NAME}"`);
+                    statusText.textContent = "Model Error";
+                    statusEmoji.textContent = "❌";
+                    statusSubtitle.textContent = `Model is missing "${ALARM_CLASS_NAME}" class.`;
+                    statusContainer.classList.add('bg-red-800');
+                    startButton.disabled = true;
+                    return;
+                }
+                
+                recognizer = model.createRecognizer();
+                console.log("Model initialized successfully.");
+                updateUI('ready');
+            } catch (error) {
+                console.error("Error loading model:", error);
+                statusText.textContent = "Load Error";
+                statusEmoji.textContent = "❌";
+                statusSubtitle.textContent = "Could not load the model.";
+                statusContainer.classList.add('bg-red-800');
+            }
+        }
+
+        /**
+         * Starts listening for audio
+         */
+        function startListening() {
+            if (!recognizer) {
+                console.error("Recognizer not initialized.");
+                return;
+            }
+
+            // Check audio context state
+            if (Tone.context.state !== 'running') {
+                Tone.context.resume().then(() => {
+                    console.log("Audio context resumed.");
+                    beginRecognition();
+                });
+            } else {
+                beginRecognition();
+            }
+        }
+
+        function beginRecognition() {
+            updateUI('armed');
+            console.log("Starting recognizer...");
+
+            recognizer.listen(result => {
+                const scores = result.scores;
+                const glassBreakIndex = classLabels.indexOf(ALARM_CLASS_NAME);
+                const glassBreakScore = scores[glassBreakIndex];
+
+                // console.log("Glass Break Score:", glassBreakScore.toFixed(2)); // For debugging
+
+                // Check if the "Glass Break" score is high
+                if (glassBreakScore > 0.90) { // 90% confidence threshold
+                    triggerAlarm();
+                }
+
+            }, {
+                includeSpectrogram: false,
+                probabilityThreshold: 0.75 // Only trigger if overall confidence is high
+            });
+        }
+
+        /**
+         * Stops the audio recognizer
+         */
+        function stopListening() {
+            if (recognizer && recognizer.isListening()) {
+                recognizer.stopListening();
+                console.log("Recognizer stopped.");
+            }
+        }
+
+        /**
+         * Triggers the alarm state
+         */
+        function triggerAlarm() {
+            console.log("ALARM TRIGGERED!");
+            stopListening();
+            updateUI('alarm');
+
+            // Start the alarm sound
+            Tone.Transport.start();
+        }
+
+        /**
+         * Resets the alarm to the 'ready' state
+         */
+        function resetAlarm() {
+            console.log("Alarm reset.");
+            stopListening();
+            
+            // Stop the alarm sound
+            Tone.Transport.stop();
+
+            updateUI('ready');
+        }
+
+        /**
+         * Updates the UI based on the system state
+         */
+        function updateUI(state) {
+            // Reset styles
+            body.classList.remove('bg-gray-900', 'bg-red-900', 'alarm-blink');
+            statusContainer.classList.remove('bg-gray-700', 'bg-green-700', 'bg-red-700');
+            
+            switch (state) {
+                case 'ready':
+                    body.classList.add('bg-gray-900');
+                    statusContainer.classList.add('bg-gray-700');
+                    statusText.textContent = "System Secure";
+                    statusEmoji.textContent = "🛡️";
+                    statusSubtitle.textContent = "System is disarmed.";
+                    startButton.classList.remove('hidden');
+                    resetButton.classList.add('hidden');
+                    break;
+                case 'armed':
+                    body.classList.add('bg-gray-900');
+                    statusContainer.classList.add('bg-green-700');
+                    statusText.textContent = "System Armed";
+                    statusEmoji.textContent = "👂";
+                    statusSubtitle.textContent = "Listening for glass break...";
+                    startButton.classList.add('hidden');
+                    resetButton.classList.add('hidden');
+                    break;
+                case 'alarm':
+                    body.classList.add('bg-red-900', 'alarm-blink');
+                    statusContainer.classList.add('bg-red-700');
+                    statusText.textContent = "ALARM!";
+                    statusEmoji.textContent = "🚨";
+                    statusSubtitle.textContent = "Glass Break Detected!";
+                    startButton.classList.add('hidden');
+                    resetButton.classList.remove('hidden');
+                    break;
+            }
+        }
+
+        // --- Event Listeners ---
+        startButton.addEventListener('click', () => {
+             // Start Tone.js context on user interaction
+             Tone.start().then(startListening);
+        });
+        resetButton.addEventListener('click', resetAlarm);
+
+        // Load the model when the window loads
+        window.onload = initModel;
+
+    </script>
 </body>
 </html>
